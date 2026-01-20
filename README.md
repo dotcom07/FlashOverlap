@@ -13,12 +13,13 @@
 </div>
 
 ## News
-**[2025.08.23]** *FlashOverlap* has been accepted by EuroSys'26 🎉 Tech report will be updated soon. 
+**[2026.01.20]** Add multi-node scripts. 
+**[2025.08.23]** *FlashOverlap* has been accepted by EuroSys'26 🎉 Tech report has been updated. 
 
 ## Roadmap
 - [x] demo for GEMM+AllReduce
 - [x] predictive search for wave grouping
-- [ ] multi-node example
+- [x] multi-node example
 - [x] demo for GEMM+ReduceScatter
 - [ ] demo for GEMM+AlltoAll
 - [x] code branch for AE
@@ -124,7 +125,7 @@ Currently the repo supports two ways to generate the proper configs for GEMMs fo
     $ python gen_config.py --m $M --n $N --k $K --path $CSV_PATH
 ```
 
-2. Using the customized profiler for a specific shape. The profiling process finishes within minutes. (This method has not been evaluated on RTX 4090 and RTX 3090 yet, will be updated soon.)
+2. Using the customized profiler for a specific shape. The profiling process finishes within minutes. (This method has been evaluated only on A800/A100 GPUs.)
 ```shell
     $ python profile_config.py --m $M --n $N --k $K
 ```
@@ -160,6 +161,25 @@ Open the test dir and run the script.
     $ CUDA_VISIBLE_DEVICES=0,1 python correctness_{ar, rs}.py --m $M --n $N --k $K
 ```
 3. We define the `ReorderRMSNorm` class in `RMSNorm.py` and the `OverlapRowParallelLayer` class in `RowParallelLayer.py`, which can replace the `RMSNorm` class and `RowParallelLayer` class, respectively. It's a simple example of usage in end-to-end inference or training. 
+
+### Multi-node Usage
+⚠️ ***Notice:*** The `./configs` dir should be in a public storage, shared by the multiple nodes. 
+1. Generate bandwidth curve.
+```shell
+    $ cd ./tune
+    $ torchrun --nnodes=$NODE_NUM --nproc_per_node=$RANKS_PER_NODE --rdzv_id=123 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR bandwidth_multinode.py --comm_op {all_reduce, reduce_scatter}
+```
+
+2. Search for the optimal configuration.
+```shell
+    $ torchrun --nnodes=$NODE_NUM --nproc_per_node=$RANKS_PER_NODE --rdzv_id=123 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR search_multinode.py --m_dim $M --n_dim $N --k_dim $K --comm_op {all_reduce, reduce_scatter}
+```
+
+3. Test the speed.
+```shell
+    $ cd ./test
+    $ torchrun --nnodes=$NODE_NUM --nproc_per_node=$RANKS_PER_NODE --rdzv_id=123 --rdzv_backend=c10d --rdzv_endpoint=$MASTER_ADDR test_multinode.py --m_dim $M --n_dim $N --k_dim $K --comm_op {all_reduce, reduce_scatter}
+```
 
 ## Citation
 ```

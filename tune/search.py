@@ -28,8 +28,14 @@ def load_json(M: int, N: int, K: int):
     # 如果文件存在，加载 JSON 数据
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
-    
-    return data["BM"], data["BN"], data["dur"], data["Algo"]
+
+    def _candidate_list(key: str):
+        value = data.get(f"{key}_candidates", data.get(key))
+        if isinstance(value, list):
+            return value
+        return [value]
+
+    return _candidate_list("BM"), _candidate_list("BN"), _candidate_list("dur"), _candidate_list("Algo")
 
 def save_solution(M: int, N: int, K: int, BM: int, BN: int, gemm_dur: float, Algo: int, hint: list, cSeg: list):
     device = torch.cuda.current_device()
@@ -39,6 +45,14 @@ def save_solution(M: int, N: int, K: int, BM: int, BN: int, gemm_dur: float, Alg
     
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
+
+    # Keep original candidate lists so search can be rerun without regenerating configs. 
+    for key in ("BM", "BN", "dur", "Algo"):
+        value = data.get(key)
+        if isinstance(value, list):
+            data[f"{key}_candidates"] = value
+        elif f"{key}_candidates" not in data and value is not None:
+            data[f"{key}_candidates"] = [value]
     
     data["hint"] = hint
     data["cSeg"] = cSeg
@@ -387,6 +401,8 @@ def integer_partitions(n):
 def exhaustive_search(M: int, N: int, K: int, comm_op: str):
     # load the .json file
     BM_list, BN_list, gemm_dur_list, Algo_list = load_json(M, N, K)
+    candidate_num = min(5, len(BM_list), len(BN_list), len(gemm_dur_list), len(Algo_list))
+    assert candidate_num > 0, "No GEMM candidates found in config."
 
     # get the SM count
     device = torch.cuda.current_device()
@@ -394,7 +410,7 @@ def exhaustive_search(M: int, N: int, K: int, comm_op: str):
     sm_count = props.multi_processor_count
 
     hint = None
-    for t in range(5):
+    for t in range(candidate_num):
         BM = BM_list[t]
         BN = BN_list[t]
         gemm_dur = gemm_dur_list[t]
@@ -442,6 +458,8 @@ def exhaustive_search(M: int, N: int, K: int, comm_op: str):
 def fast_search(M: int, N: int, K: int, comm_array: torch.Tensor, comm_op: str):
     # load the .json file
     BM_list, BN_list, gemm_dur_list, Algo_list = load_json(M, N, K)
+    candidate_num = min(10, len(BM_list), len(BN_list), len(gemm_dur_list), len(Algo_list))
+    assert candidate_num > 0, "No GEMM candidates found in config."
 
     # get the SM count
     device = torch.cuda.current_device()
@@ -449,7 +467,7 @@ def fast_search(M: int, N: int, K: int, comm_array: torch.Tensor, comm_op: str):
     sm_count = props.multi_processor_count
 
     hint = None
-    for t in range(10):
+    for t in range(candidate_num):
         BM = BM_list[t]
         BN = BN_list[t]
         gemm_dur = gemm_dur_list[t]
@@ -512,12 +530,18 @@ def main():
     parser.add_argument('--k', type=int, default=8192)
     parser.add_argument('--n', type=int, default=8192)
     parser.add_argument('--comm_op', type=str, default='all_reduce')
-    parser.add_argument('--predictive_search', type=bool, default=False)
+    parser.add_argument(
+        '--predictive_search',
+        nargs='?',
+        const=True,
+        default=False,
+        type=lambda x: str(x).lower() in ("1", "true", "t", "yes", "y"),
+    )
     args = parser.parse_args()
 
     # Force to use predictive search if the workload is large
     if args.predictive_search or args.m * args.n > 33554432:
-        comm_array = torch.load(f"../configs/bandwidth_{args.comm_op}_tp{world_size}.pt")
+        comm_array = torch.load(f"../configs/bandwidth_{args.comm_op}_tp{world_size}.pt", weights_only=True)
         print("Bandwidth curve captured.")
         fast_search(args.m, args.n, args.k, comm_array, args.comm_op)
     else:

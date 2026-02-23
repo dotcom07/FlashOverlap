@@ -11,8 +11,8 @@ candidates = {
     'WarpK': [32, 64],
     'InstructionM': [16],
     'InstructionN': [8],
-    'InstructionK': [16],
-    'NumStages': [3, 4, 5],
+    'InstructionK': [8, 16],
+    'NumStages': [2, 3, 4, 5],
     'SwizzleSize': [1, 2, 3, 4, 6, 8],
     'SplitK': [1]
 }

@@ -47,7 +47,7 @@ def read_algo_dict(file_path: str, key_tuple: tuple):
     if Path(file_path).exists():
         # 如果文件存在，加载字典
         # print(f"Config {key_tuple} found.")
-        data_dict = torch.load(file_path, weights_only=True)
+        data_dict = torch.load(file_path, weights_only=False)
     else:
         # 如果文件不存在，创建一个新的空字典
         data_dict = {}

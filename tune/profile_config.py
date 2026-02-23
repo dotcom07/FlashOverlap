@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 from heapq import nsmallest
 
+from path_utils import resolve_config_load_path, resolve_config_save_path
+
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
 def perf_wrapped_gemm(M: int, N: int, K: int, Algo: int):
@@ -55,12 +57,10 @@ def read_algo_dict(file_path: str, key_tuple: tuple):
         return new_index
 
 def save_json(M: int, N: int, K: int, bm_list, bn_list, idx_list, dur_list):
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
-    file_path = f'../configs/m{M}n{N}k{K}_{gpu_name}.json'
-    if Path(file_path).exists():
-        with open(file_path, 'r', encoding='utf-8') as f:
+    load_path = resolve_config_load_path(M, N, K)
+    save_path = resolve_config_save_path(M, N, K)
+    if load_path.exists():
+        with open(load_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     else:
         data = {}
@@ -68,7 +68,7 @@ def save_json(M: int, N: int, K: int, bm_list, bn_list, idx_list, dur_list):
     data["BN"] = bn_list
     data["dur"] = dur_list
     data["Algo"] = idx_list
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 

@@ -5,8 +5,14 @@ import torch.distributed as dist
 import argparse
 import os
 import json
+from pathlib import Path
+import sys
 from RMSNorm import RMSNorm, ReorderRMSNorm
 from RowParallelLinear import RowParallelLayer, OverlapRowParallelLayer
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT_DIR / "tune"))
+from path_utils import resolve_config_load_path
 
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
@@ -74,10 +80,7 @@ def main():
 
     print(f"NCCL ID generated: {nccl_id[0]}")
 
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
-    config_file = f'../configs/m{args.m}n{args.n}k{args.k}_{gpu_name}.json'
+    config_file = resolve_config_load_path(args.m, args.n, args.k)
 
     with open(config_file, 'r') as file:
         config = json.load(file)

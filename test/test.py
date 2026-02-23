@@ -11,6 +11,11 @@ import torch.multiprocessing as mp
 import pandas as pd
 import argparse
 import os
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+sys.path.append(str(ROOT_DIR / "tune"))
+from path_utils import resolve_config_load_path
 
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
@@ -325,7 +330,6 @@ def perf_baseline(M: int, N: int, K: int, comm_op: str):
 def main():
     device = torch.cuda.current_device()
     props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
     sm_count = props.multi_processor_count
     wave_size = sm_count - 2
 
@@ -340,7 +344,7 @@ def main():
 
     m, n, k = args.m, args.n, args.k
 
-    file_path = f'../configs/m{m}n{n}k{k}_{gpu_name}.json'
+    file_path = resolve_config_load_path(m, n, k)
 
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -372,7 +376,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
 
 

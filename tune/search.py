@@ -12,18 +12,17 @@ from pathlib import Path
 import torch.multiprocessing as mp
 import numpy as np
 
+from path_utils import resolve_config_load_path, resolve_config_save_path
+
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
 def div_up(x: int, y: int):
     return (x + y - 1) // y
 
 def load_json(M: int, N: int, K: int):
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
-    file_path = f'../configs/m{M}n{N}k{K}_{gpu_name}.json'
+    file_path = resolve_config_load_path(M, N, K)
     
-    assert Path(file_path).exists(), "Please run preprocess.py first!"
+    assert file_path.exists(), "Please run preprocess.py first!"
     
     # 如果文件存在，加载 JSON 数据
     with open(file_path, 'r', encoding='utf-8') as f:
@@ -38,13 +37,15 @@ def load_json(M: int, N: int, K: int):
     return _candidate_list("BM"), _candidate_list("BN"), _candidate_list("dur"), _candidate_list("Algo")
 
 def save_solution(M: int, N: int, K: int, BM: int, BN: int, gemm_dur: float, Algo: int, hint: list, cSeg: list):
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
-    file_path = f'../configs/m{M}n{N}k{K}_{gpu_name}.json'
+    load_path = resolve_config_load_path(M, N, K)
+    save_path = resolve_config_save_path(M, N, K)
+    source_path = load_path if load_path.exists() else save_path
     
-    with open(file_path, 'r', encoding='utf-8') as f:
-        data = json.load(f)
+    if source_path.exists():
+        with open(source_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    else:
+        data = {}
 
     # Keep original candidate lists so search can be rerun without regenerating configs. 
     for key in ("BM", "BN", "dur", "Algo"):
@@ -61,7 +62,7 @@ def save_solution(M: int, N: int, K: int, BM: int, BN: int, gemm_dur: float, Alg
     data["BN"] = BN
     data["dur"] = gemm_dur
     data["Algo"] = Algo
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 def generate_row_remap_array(

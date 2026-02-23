@@ -7,8 +7,14 @@ import torch
 import argparse
 import pandas as pd
 import json
-import os
 from pathlib import Path
+
+from path_utils import (
+    profile_csv_candidates,
+    resolve_config_load_path,
+    resolve_config_save_path,
+    resolve_existing_path,
+)
 
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
@@ -67,13 +73,12 @@ def read_algo_dict(file_path: str, key_tuple: tuple):
         return new_index
 
 def save_json(M: int, N: int, K: int, bm_list, bn_list, idx_list, dur_list):
-    device = torch.cuda.current_device()
-    props = torch.cuda.get_device_properties(device)
-    gpu_name = props.name[7:11].lower()
-    file_path = f'../configs/m{M}n{N}k{K}_{gpu_name}.json'
-    if Path(file_path).exists():
+    load_path = resolve_config_load_path(M, N, K)
+    save_path = resolve_config_save_path(M, N, K)
+
+    if load_path.exists():
         # 如果文件存在，加载 JSON 数据
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(load_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
     else:
         # 如果文件不存在，创建一个空的字典
@@ -82,7 +87,7 @@ def save_json(M: int, N: int, K: int, bm_list, bn_list, idx_list, dur_list):
     data["BN"] = bn_list
     data["dur"] = dur_list
     data["Algo"] = idx_list
-    with open(file_path, 'w', encoding='utf-8') as f:
+    with open(save_path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 
@@ -97,16 +102,19 @@ def main():
     parser.add_argument('--path', type=str, default="../../../cutlass/build/")
     args = parser.parse_args()
 
-    # Load the .csv file
-    # generate the file name by combining M, N, K
-    file_name = os.path.join(args.path, f'm{args.m}n{args.n}k{args.k}.gemm.csv')
-    # check if the file exists, if not, report the error
-    try:
-        with open(file_name, 'r') as file:
-            print(f'File found.')
-    except FileNotFoundError:
-        print(f'File {file_name} not found. Please generate the profiling results first.')
+    preferred_csv, csv_candidates = profile_csv_candidates(args.m, args.n, args.k, args.path)
+    file_name = resolve_existing_path(csv_candidates)
+
+    if file_name is None:
+        print("Profiling CSV not found.")
+        print("Please generate profiling results with a GPU-specific filename.")
+        print(f"Recommended output path: {preferred_csv}")
         return
+
+    if file_name != preferred_csv:
+        print(f"Using profiling CSV: {file_name}")
+    else:
+        print("File found.")
 
     data = pd.read_csv(file_name)
     

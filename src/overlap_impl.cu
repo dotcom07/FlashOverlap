@@ -76,7 +76,8 @@ void OverlapImpl::GemmAllReduce(at::Tensor A, at::Tensor B, at::Tensor C, int64_
         M, N, K, a_ptr, b_ptr, c_ptr, this->gemm_stream
     );
 
-    NCCL_CHECK(ncclAllReduce((void *)c_ptr, (void *)c_ptr, (M * N), ncclFloat16, ncclSum, this->comm, this->gemm_stream));
+    const size_t elem_count = static_cast<size_t>(M) * static_cast<size_t>(N);
+    NCCL_CHECK(ncclAllReduce((void *)c_ptr, (void *)c_ptr, elem_count, ncclFloat16, ncclSum, this->comm, this->gemm_stream));
 }
 
 void OverlapImpl::GemmReduceScatter(
@@ -95,7 +96,7 @@ void OverlapImpl::GemmReduceScatter(
         M, N, K, a_ptr, b_ptr, c_ptr, this->gemm_stream
     );
 
-    size_t recvcount = (M * N) / this->my_size;
+    size_t recvcount = (static_cast<size_t>(M) * static_cast<size_t>(N)) / static_cast<size_t>(this->my_size);
     NCCL_CHECK(ncclReduceScatter((void *)c_ptr, (void *)d_ptr, recvcount, 
         ncclFloat16, ncclSum, this->comm, this->gemm_stream));
 }
@@ -119,17 +120,17 @@ void OverlapImpl::GemmAll2All(at::Tensor A, at::Tensor B, at::Tensor C, at::Tens
 
     // Launch All2All after GEMM
     // First SEND
-    int src_acc_addr = 0;
+    size_t src_acc_addr = 0;
     // Then RECV
-    int dst_acc_addr = 0;
+    size_t dst_acc_addr = 0;
     NCCL_CHECK(ncclGroupStart());
     for (int i = 0; i < this->my_size; i++){
         if (i == this->my_rank){continue;}
-        size_t sendcount = mlen_cpu_ptr[this->my_rank * this->my_size + i] * N;
+        size_t sendcount = static_cast<size_t>(mlen_cpu_ptr[this->my_rank * this->my_size + i]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclSend((void *)(c_ptr + src_acc_addr), sendcount, ncclFloat16, i, this->comm, this->gemm_stream));
         src_acc_addr += sendcount;
 
-        size_t recvcount = mlen_cpu_ptr[i * this->my_size + this->my_rank] * N;
+        size_t recvcount = static_cast<size_t>(mlen_cpu_ptr[i * this->my_size + this->my_rank]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclRecv((void *)(d_ptr + dst_acc_addr), recvcount, ncclFloat16, i, this->comm, this->gemm_stream));
         dst_acc_addr += recvcount;
     }
@@ -147,7 +148,8 @@ void OverlapImpl::NcclAllReduce(at::Tensor C){
 
     half* c_ptr = reinterpret_cast<half *>(C.data_ptr<at::Half>());
 
-    ncclAllReduce((void *)c_ptr, (void *)c_ptr, (M * N), ncclFloat16, ncclSum, this->comm, this->gemm_stream);
+    const size_t elem_count = static_cast<size_t>(M) * static_cast<size_t>(N);
+    ncclAllReduce((void *)c_ptr, (void *)c_ptr, elem_count, ncclFloat16, ncclSum, this->comm, this->gemm_stream);
 }
 
 void OverlapImpl::SegAllReduce(at::Tensor C, at::Tensor cSEG_CPU, int64_t SegNum){
@@ -158,9 +160,10 @@ void OverlapImpl::SegAllReduce(at::Tensor C, at::Tensor cSEG_CPU, int64_t SegNum
     half* c_ptr = reinterpret_cast<half *>(C.data_ptr<at::Half>());
     int* cseg_cpu_ptr = cSEG_CPU.data_ptr<int>();
 
-    int acc_addr = 0;
+    const size_t total_elems = static_cast<size_t>(M) * static_cast<size_t>(N);
+    size_t acc_addr = 0;
     for (int s = 0; s < SegNum; s++){
-        int commSize = M * N / SegNum * cseg_cpu_ptr[s];
+        size_t commSize = (total_elems / static_cast<size_t>(SegNum)) * static_cast<size_t>(cseg_cpu_ptr[s]);
         NCCL_CHECK(ncclAllReduce((void *)(c_ptr + acc_addr), (void *)(c_ptr + acc_addr), commSize, ncclFloat16, ncclSum, this->comm, this->gemm_stream));
         acc_addr += commSize;
     }
@@ -173,7 +176,7 @@ void OverlapImpl::NcclReduceScatter(at::Tensor C){
 
     half* c_ptr = reinterpret_cast<half *>(C.data_ptr<at::Half>());
 
-    size_t recvcount = (M * N) / this->my_size;
+    size_t recvcount = (static_cast<size_t>(M) * static_cast<size_t>(N)) / static_cast<size_t>(this->my_size);
     NCCL_CHECK(ncclReduceScatter((void *)c_ptr, (void *)(c_ptr + this->my_rank * recvcount), recvcount, 
         ncclFloat16, ncclSum, this->comm, this->gemm_stream));
 }
@@ -194,17 +197,17 @@ void OverlapImpl::NcclAll2All(at::Tensor C,
     half* d_ptr = reinterpret_cast<half *>(D.data_ptr<at::Half>());
 
     // First SEND
-    int src_acc_addr = 0;
+    size_t src_acc_addr = 0;
     // Then RECV
-    int dst_acc_addr = 0;
+    size_t dst_acc_addr = 0;
     NCCL_CHECK(ncclGroupStart());
     for (int i = 0; i < this->my_size; i++){
         if (i == this->my_rank){continue;}
-        size_t sendcount = mlen_cpu_ptr[this->my_rank * this->my_size + i] * N;
+        size_t sendcount = static_cast<size_t>(mlen_cpu_ptr[this->my_rank * this->my_size + i]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclSend((void *)(c_ptr + src_acc_addr), sendcount, ncclFloat16, i, this->comm, this->gemm_stream));
         src_acc_addr += sendcount;
 
-        size_t recvcount = mlen_cpu_ptr[i * this->my_size + this->my_rank] * N;
+        size_t recvcount = static_cast<size_t>(mlen_cpu_ptr[i * this->my_size + this->my_rank]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclRecv((void *)(d_ptr + dst_acc_addr), recvcount, ncclFloat16, i, this->comm, this->gemm_stream));
         dst_acc_addr += recvcount;
     }
@@ -243,13 +246,14 @@ void OverlapImpl::GemmAllReduceOverlap(
     int* cseg_cpu_ptr = cSEG_CPU.data_ptr<int>();
     int* cseg_gpu_ptr = cSEG_GPU.data_ptr<int>();
 
-    int acc_addr = 0;
+    const size_t total_elems = static_cast<size_t>(M) * static_cast<size_t>(N);
+    size_t acc_addr = 0;
     signal_func_table[Algo](
         M, N, K, rLDN, cseg_gpu_ptr, a_ptr, b_ptr, c_ptr, mm_ptr, ra_ptr, if_monitor, this->gemm_stream
     );
     for (int iter = 0; iter < SegSize; iter++){
         int this_seg = cseg_cpu_ptr[iter];
-        int commSize = M * N / TileNum * this_seg;
+        size_t commSize = (total_elems / static_cast<size_t>(TileNum)) * static_cast<size_t>(this_seg);
         // The signal is reset by the wait kernel
         kernel_wait_flag<<<1, 1, 0, this->comm_stream>>> (this_seg, (mm_ptr + iter));
         // Communicate the data
@@ -299,18 +303,19 @@ void OverlapImpl::GemmReduceScatterOverlap(
     int* cseg_cpu_ptr = cSEG_CPU.data_ptr<int>();
     int* cseg_gpu_ptr = cSEG_GPU.data_ptr<int>();
 
-    int acc_addr = 0;
+    const size_t total_elems = static_cast<size_t>(M) * static_cast<size_t>(N);
+    size_t acc_addr = 0;
     scatter_func_table[Algo](
         M, N, K, rLDN, cseg_gpu_ptr, a_ptr, b_ptr, c_ptr, mm_ptr, ra_ptr, re_ptr, if_monitor, this->gemm_stream
     );
     for (int iter = 0; iter < SegSize; iter++){
         int this_seg = cseg_cpu_ptr[iter];
-        int commSize = M * N / TileNum * this_seg;
+        size_t commSize = (total_elems / static_cast<size_t>(TileNum)) * static_cast<size_t>(this_seg);
         // The signal is reset by the wait kernel
         kernel_wait_flag<<<1, 1, 0, this->comm_stream>>> (this_seg, (mm_ptr + iter));
         // Communicate the data
-        NCCL_CHECK(ncclReduceScatter((void *)(c_ptr + acc_addr), (void *)(d_ptr + acc_addr / this->my_size), 
-            (commSize / this->my_size), ncclFloat16, ncclSum, this->comm, this->comm_stream));
+        NCCL_CHECK(ncclReduceScatter((void *)(c_ptr + acc_addr), (void *)(d_ptr + acc_addr / static_cast<size_t>(this->my_size)), 
+            (commSize / static_cast<size_t>(this->my_size)), ncclFloat16, ncclSum, this->comm, this->comm_stream));
         acc_addr += commSize;
     }
 

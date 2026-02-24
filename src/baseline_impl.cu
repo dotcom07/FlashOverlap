@@ -59,7 +59,8 @@ void BaselineImpl::GemmAllReduce(at::Tensor A, at::Tensor B, at::Tensor C){
                     CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 
     // Launch AllReduce after GEMM
-    NCCL_CHECK(ncclAllReduce((void *)c_ptr, (void *)c_ptr, (M * N), ncclFloat16, ncclSum, this->comm, this->my_stream));
+    const size_t elem_count = static_cast<size_t>(M) * static_cast<size_t>(N);
+    NCCL_CHECK(ncclAllReduce((void *)c_ptr, (void *)c_ptr, elem_count, ncclFloat16, ncclSum, this->comm, this->my_stream));
 }
 
 void BaselineImpl::GemmReduceScatter(
@@ -102,7 +103,7 @@ void BaselineImpl::GemmReduceScatter(
                     CUBLAS_GEMM_DEFAULT_TENSOR_OP);
 
     // Launch AllReduce after GEMM
-    size_t recvcount = (M * N) / this->my_size;
+    size_t recvcount = (static_cast<size_t>(M) * static_cast<size_t>(N)) / static_cast<size_t>(this->my_size);
     NCCL_CHECK(ncclReduceScatter((void *)c_ptr, (void *)d_ptr, recvcount, 
         ncclFloat16, ncclSum, this->comm, this->my_stream));
 }
@@ -149,17 +150,17 @@ void BaselineImpl::GemmAll2All(at::Tensor A, at::Tensor B, at::Tensor C,
 
     // Launch All2All after GEMM
     // First SEND
-    int src_acc_addr = 0;
+    size_t src_acc_addr = 0;
     // Then RECV
-    int dst_acc_addr = 0;
+    size_t dst_acc_addr = 0;
     NCCL_CHECK(ncclGroupStart());
     for (int i = 0; i < this->my_size; i++){
         if (i == this->my_rank){continue;}
-        size_t sendcount = mlen_cpu_ptr[this->my_rank * this->my_size + i] * N;
+        size_t sendcount = static_cast<size_t>(mlen_cpu_ptr[this->my_rank * this->my_size + i]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclSend((void *)(c_ptr + src_acc_addr), sendcount, ncclFloat16, i, this->comm, this->my_stream));
         src_acc_addr += sendcount;
 
-        size_t recvcount = mlen_cpu_ptr[i * this->my_size + this->my_rank] * N;
+        size_t recvcount = static_cast<size_t>(mlen_cpu_ptr[i * this->my_size + this->my_rank]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclRecv((void *)(d_ptr + dst_acc_addr), recvcount, ncclFloat16, i, this->comm, this->my_stream));
         dst_acc_addr += recvcount;
     }
@@ -224,7 +225,8 @@ void BaselineImpl::NcclAllReduce(at::Tensor C){
 
     half* c_ptr = reinterpret_cast<half *>(C.data_ptr<at::Half>());
 
-    ncclAllReduce((void *)c_ptr, (void *)c_ptr, (M * N), ncclFloat16, ncclSum, this->comm, this->my_stream);
+    const size_t elem_count = static_cast<size_t>(M) * static_cast<size_t>(N);
+    ncclAllReduce((void *)c_ptr, (void *)c_ptr, elem_count, ncclFloat16, ncclSum, this->comm, this->my_stream);
 }
 
 void BaselineImpl::NcclReduceScatter(at::Tensor C){
@@ -234,7 +236,7 @@ void BaselineImpl::NcclReduceScatter(at::Tensor C){
 
     half* c_ptr = reinterpret_cast<half *>(C.data_ptr<at::Half>());
 
-    size_t recvcount = (M * N) / this->my_size;
+    size_t recvcount = (static_cast<size_t>(M) * static_cast<size_t>(N)) / static_cast<size_t>(this->my_size);
     NCCL_CHECK(ncclReduceScatter((void *)c_ptr, (void *)(c_ptr + this->my_rank * recvcount), recvcount, 
         ncclFloat16, ncclSum, this->comm, this->my_stream));
 }
@@ -255,17 +257,17 @@ void BaselineImpl::NcclAll2All(at::Tensor C,
     half* d_ptr = reinterpret_cast<half *>(D.data_ptr<at::Half>());
 
     // First SEND
-    int src_acc_addr = 0;
+    size_t src_acc_addr = 0;
     // Then RECV
-    int dst_acc_addr = 0;
+    size_t dst_acc_addr = 0;
     NCCL_CHECK(ncclGroupStart());
     for (int i = 0; i < this->my_size; i++){
         if (i == this->my_rank){continue;}
-        size_t sendcount = mlen_cpu_ptr[this->my_rank * this->my_size + i] * N;
+        size_t sendcount = static_cast<size_t>(mlen_cpu_ptr[this->my_rank * this->my_size + i]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclSend((void *)(c_ptr + src_acc_addr), sendcount, ncclFloat16, i, this->comm, this->my_stream));
         src_acc_addr += sendcount;
 
-        size_t recvcount = mlen_cpu_ptr[i * this->my_size + this->my_rank] * N;
+        size_t recvcount = static_cast<size_t>(mlen_cpu_ptr[i * this->my_size + this->my_rank]) * static_cast<size_t>(N);
         NCCL_CHECK(ncclRecv((void *)(d_ptr + dst_acc_addr), recvcount, ncclFloat16, i, this->comm, this->my_stream));
         dst_acc_addr += recvcount;
     }

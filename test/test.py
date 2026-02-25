@@ -15,12 +15,40 @@ import sys
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(ROOT_DIR / "tune"))
-from path_utils import resolve_config_load_path
+from path_utils import resolve_config_load_path, current_gpu_model_tag
 
 torch.ops.load_library("../build/lib/libst_pybinding.so")
 
 WARM_UP=20
 REP=200
+HETERO_FIXED_CONFIG_TAG = "rtx_a6000" # 기준 고정
+
+
+def resolve_log_gpu_tag(force_heterogeneous: int) -> str:
+    if int(force_heterogeneous) == 1:
+        return "hetero"
+    return current_gpu_model_tag()
+
+
+def resolve_test_config_load_path(m: int, n: int, k: int, force_heterogeneous: int) -> Path:
+    if int(force_heterogeneous) == 1:
+        return Path("../configs") / f"m{m}n{n}k{k}_{HETERO_FIXED_CONFIG_TAG}.json"
+    return resolve_config_load_path(m, n, k)
+
+
+def save_test_log_json(
+    m: int,
+    n: int,
+    k: int,
+    gpu_model_tag: str,
+    payload: dict,
+):
+    out_dir = ROOT_DIR / "test_results"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"m{m}n{n}k{k}_{gpu_model_tag}.json"
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=4)
+    print(f"Test log saved: {out_path}")
 
 def div_up(x: int, y: int):
     return (x + y - 1) // y
@@ -252,7 +280,12 @@ def perf_comm(M: int, N: int, comm_type: str):
             args=(world_size, nccl_id, M, N, comm_type, result_dict),
             nprocs=world_size
         )
+    
+    # dur = torch.empty((world_size))
+    # for i in range(world_size):
+    #     dur[i] = result_dict[i]
 
+    # return dur.mean().item()
     return result_dict[0]
 
 # Function to initialize NCCL in each process
@@ -338,13 +371,19 @@ def main():
     parser.add_argument('--k', type=int, default=8192)
     parser.add_argument('--n', type=int, default=8192)
     parser.add_argument('--comm_op', type=str, default='all_reduce')
+    parser.add_argument('--hetero', '--hetero', dest='hetero', type=int, default=0)
     args = parser.parse_args()
 
     comm_op = args.comm_op
 
     m, n, k = args.m, args.n, args.k
 
-    file_path = resolve_config_load_path(m, n, k)
+    file_path = resolve_test_config_load_path(m, n, k, args.hetero)
+    if not file_path.exists():
+        raise FileNotFoundError(
+            f"Config file not found: {file_path} "
+            f"(hetero={args.hetero}, fixed_tag={HETERO_FIXED_CONFIG_TAG})"
+        )
 
     with open(file_path, 'r', encoding='utf-8') as f:
         data = json.load(f)
@@ -374,8 +413,35 @@ def main():
         {'speedup':<10} {speedup:>15.4f}
         """)
 
+    gpu_model_tag = resolve_log_gpu_tag(args.hetero)
+    log_payload = {
+        "m": int(m),
+        "n": int(n),
+        "k": int(k),
+        "comm_op": comm_op,
+        "gpu_name": props.name,
+        "gpu_model_tag": gpu_model_tag,
+        "world_size": int(torch.cuda.device_count()),
+        "sm_count": int(sm_count),
+        "wave_size": int(wave_size),
+        "tile_num": int(tile_num),
+        "wave_num": int(wave_num),
+        "BM": int(data["BM"]),
+        "BN": int(data["BN"]),
+        "Algo": int(data["Algo"]),
+        "cSeg": [int(x) for x in data["cSeg"]],
+        "hint": [int(x) for x in data["hint"]],
+        "warmup": int(WARM_UP),
+        "rep": int(REP),
+        "gemm_dur_ms": float(gemm_dur),
+        "comm_dur_ms": float(comm_dur),
+        "baseline_dur_ms": float(baseline_dur),
+        "overlap_dur_ms": float(overlap_dur),
+        "speedup": float(speedup),
+        "config_path": str(file_path),
+    }
+    save_test_log_json(m, n, k, gpu_model_tag, log_payload)
+
 if __name__ == "__main__":
     main()
-
-
 
